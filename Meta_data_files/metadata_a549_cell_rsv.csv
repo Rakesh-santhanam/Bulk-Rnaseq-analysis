@@ -1,0 +1,7 @@
+samples,source_name,Organism,Run,Cell_Line,strain,treatment,time_points,conditions
+GSM4462354,Mock treated A549 cells,Homo sapiens,SRR11517750,A549,mock,Mock treatment,24 hours,mock
+GSM4462355,Mock treated A549 cells,Homo sapiens,SRR11517751,A549,mock,Mock treatment,24 hours,mock
+GSM4462356,Mock treated A549 cells,Homo sapiens,SRR11517752,A549,mock,Mock treatment,24 hours,mock
+GSM4462357,RSV infected A549 cells,Homo sapiens,SRR11517753,A549,A2,RSV infected (MOI 2),24 hours,RSV
+GSM4462358,RSV infected A549 cells,Homo sapiens,SRR11517754,A549,A2,RSV infected (MOI 2),24 hours,RSV
+GSM4462359,RSV infected A549 cells,Homo sapiens,SRR11517755,A549,A2,RSV infected (MOI 2),24 hours,RSV

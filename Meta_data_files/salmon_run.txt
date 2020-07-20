@@ -1,0 +1,12 @@
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462354	-r  SRR11517750_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462355	-r  SRR11517751_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462356	-r  SRR11517752_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462357	-r  SRR11517753_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462358	-r  SRR11517754_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462359	-r  SRR11517755_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462342	-r  SRR11517680_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462343	-r  SRR11517681_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462344	-r  SRR11517682_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462345	-r  SRR11517741_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462346	-r  SRR11517742_1.fastq.gz
+salmon quant -i ../gencode_v34_index/ -l A -o  GSM4462347	-r  SRR11517743_1.fastq.gz
