@@ -1,0 +1,724 @@
+---
+title: "a549_rnaseq"
+author: "Rakesh Santhanam"
+date: "9 July 2020"
+output: html_document
+---
+
+```{r load_packages, warning=FALSE, include=FALSE}
+
+library("tidyverse")
+library("magrittr")
+library("tximport")
+library("DESeq2")
+library("plotly")
+library("biomaRt")
+library("pheatmap")
+library("RColorBrewer")
+library("clusterProfiler")
+library("org.Hs.eg.db")
+library("knitr")
+library("reticulate")
+library("ggVennDiagram")
+```
+
+# SARScov2 and RSV Rnaseq analysis
+
+Cell line used: **A549** cell line- adenocarcinomic human alveolar basal epithelial cells
+
+Virus: **SARScov2** and **RSV**- Respiratory-syncytial-virus.
+
+Metadata loading for SARScov2 and RSV virus.
+
+Throughout this analysis we will do sars_cov2 followed by rsv virus analysis
+```{r loading metadata }
+
+metadata_a549_cell_sars_cov2 <- 
+  read_csv("~/rnaseq/a549_cells/metadata_a549_cell_sars_cov2.csv")
+
+metadata_a549_cell_rsv <- 
+  read_csv("~/rnaseq/a549_cells/metadata_a549_cell_rsv.csv")
+
+```
+
+quant files for tximport 
+```{r loading quant files }
+
+sars_cov2_quant_files <- 
+  paste0(metadata_a549_cell_sars_cov2$samples,"/quant.sf" )
+
+names(sars_cov2_quant_files) <- metadata_a549_cell_sars_cov2$samples
+
+rsv_quant_files <- 
+  paste0(metadata_a549_cell_rsv$samples,"/quant.sf" )
+
+names(rsv_quant_files) <- metadata_a549_cell_rsv$samples
+
+
+```
+
+gene map file constructed from gencode transcript files (see bash scripts)
+```{r loading genemap file}
+
+gene_map <- 
+  read_csv("~/rnaseq/gene_map.csv", col_names = c("enstid", "ensgid"))
+```
+
+
+
+```{r loading to tximport }
+sars_cov2_count_data <- 
+  tximport(files = sars_cov2_quant_files, ## quant_files should have names for columns
+           type = "salmon", 
+           tx2gene =gene_map,
+           ignoreTxVersion = TRUE )
+
+rsv_count_data <- 
+  tximport(files = rsv_quant_files, ## quant_files should have names for columns
+           type = "salmon", 
+           tx2gene =gene_map,
+           ignoreTxVersion = TRUE )
+
+```
+```{r arranging factors levels for deseq2 design}
+
+metadata_a549_cell_sars_cov2$conditions <- 
+  factor(metadata_a549_cell_sars_cov2$conditions, 
+         levels = c("mock", "sars_cov2"))
+ 
+metadata_a549_cell_sars_cov2$conditions 
+
+metadata_a549_cell_rsv$conditions <- 
+  factor(metadata_a549_cell_rsv$conditions, 
+         levels = c("mock", "RSV"))
+ 
+metadata_a549_cell_rsv$conditions 
+
+
+```
+
+converting tximport to deseqdataset for stat 
+```{r importing tximport to deseqdataset}
+sars_covs_deseq_dataset_a549 <- 
+  DESeqDataSetFromTximport(txi = sars_cov2_count_data,
+                           colData = metadata_a549_cell_sars_cov2, ## sample table
+                           design = ~conditions) ## conditions like treatment or control
+
+rsv_deseq_dataset_a549 <- 
+  DESeqDataSetFromTximport(txi = rsv_count_data,
+                           colData = metadata_a549_cell_rsv, ## sample table
+                           design = ~conditions) ## conditions like treatment or control
+
+```
+Basically DEseq2 caries out three steps for data normalizaton
+  1. EstimateSizeFacors
+  2. EstimateDispersions
+  3. Nbinomwald test
+
+```{r deseq2 normalizaton and statistics}
+sars_cov2_deseq_normalized_stat <- DESeq(sars_covs_deseq_dataset_a549)
+
+rsv_deseq_normalized_stat <- DESeq(rsv_deseq_dataset_a549)
+```
+```{r} 
+sars_cov2_deseq_normalized_stat
+names(assays(sars_cov2_deseq_normalized_stat)) ## contain 6 matrix
+ ##  gives raw counts first in list
+ ## gives 
+ ## gives normalizationFactors 3rd in list
+```
+
+sars_cov2_deseq_normalized_stat contains 6 matrix
+```{r }
+names(assays(sars_cov2_deseq_normalized_stat))
+```
+raw counts first in list
+```{r}
+head(assays(sars_cov2_deseq_normalized_stat)[1][[1]])
+```
+avgTxLength 2nd in list
+```{r}
+head(assays(sars_cov2_deseq_normalized_stat)[2][[1]])
+```
+normalizationFactors 3rd in list
+```{r}
+head(assays(sars_cov2_deseq_normalized_stat)[3][[1]])
+```
+
+Now PCA plot
+```{r sars_cov2}
+sars_cov2_vst <- 
+  varianceStabilizingTransformation(sars_cov2_deseq_normalized_stat)
+
+plotPCA(sars_cov2_vst, intgroup = 'conditions') +
+  theme_classic()
+
+```
+```{r rsv}
+rsv_vst <- 
+  varianceStabilizingTransformation(rsv_deseq_normalized_stat)
+
+plotPCA(rsv_vst, intgroup = 'conditions')+
+  theme_classic()
+
+```
+
+Differentially expressed genes
+
+```{r }
+sars_cov2_deg <- 
+  results(sars_cov2_deseq_normalized_stat)
+
+rsv_deg <- 
+  results(rsv_deseq_normalized_stat)
+```
+summary of DEGs
+
+```{r}
+summary(sars_cov2_deg)
+
+summary(rsv_deg)
+```
+
+```{r}
+names(sars_cov2_deg)
+## baseMean - mean of gene on entier experiment
+## log2foldchange - treated/mock
+## lfcSE- standard error
+## stat - wald test - specifically for negative binomial distribution
+## pvalue and padj values
+```
+
+MA plot 
+  1. red dots are differentially expressed genes
+```{r}
+plotMA(sars_cov2_deg)
+
+
+plotMA(rsv_deg)
+```
+
+Removing na and converting to tibble
+
+```{r}
+sars_cov2_deg_tibble <- 
+  sars_cov2_deg %>% 
+  as.data.frame() %>% 
+  rownames_to_column(.) %>% 
+  as_tibble() %>% 
+  drop_na()
+
+rsv_deg_tibble <- 
+  rsv_deg %>% 
+   as.data.frame() %>% 
+  rownames_to_column(.) %>% 
+  as_tibble() %>% 
+  drop_na()
+
+```
+
+Filtering choices
+  1. logfold change >1 < -1
+  1. padj < 0.05
+```{r}
+sars_cov2_result_filtered <- ## based on padj and log2FoldChange 
+  sars_cov2_deg_tibble %>% 
+  dplyr::filter(padj < 0.05) %>% 
+  dplyr::filter(log2FoldChange > 1 | log2FoldChange < -1)  
+
+head(sars_cov2_result_filtered)
+
+rsv_result_filtered <- 
+  rsv_deg_tibble %>% 
+  dplyr::filter(padj < 0.05) %>% 
+  dplyr::filter(log2FoldChange > 1 | log2FoldChange < -1) 
+  
+head(rsv_result_filtered)
+  
+```
+
+After filtering sanity check is important
+
+```{r}
+max(sars_cov2_result_filtered$padj) < 0.05 ## TRUE
+
+max(rsv_result_filtered$padj) < 0.05 ### TRUE
+
+```
+
+Volcano plot
+
+```{r}
+
+sars_cov2_volcano_plot <- 
+  sars_cov2_deg_tibble %>% 
+  dplyr::mutate(filter_genes = .$rowname) %>% 
+dplyr::mutate(filter_genes = ifelse(.$filter_genes %in% sars_cov2_result_filtered$rowname, "sig", "not_sig")) %>% ## changing filter genes to sig and not_sig 
+  #dplyr::filter(filter_genes == "sig")
+  ## dplyr::arrange(padj) sanity check - fine
+  ggplot(aes(x = log2FoldChange, y = -log10(padj))) +
+  #scale_colour_manual(values = c("black", "red")) +
+  geom_point(aes(colour = filter_genes), size =1, alpha = 0.3)+
+  geom_vline(xintercept = 1, linetype = 3) +
+  geom_vline(xintercept = -1, linetype = 3) +
+  geom_hline(yintercept = -log10(0.05), linetype =3) +
+  xlim(-5,5)+
+  ylim(0,20)+
+  theme(legend.position ="none") +
+  theme_classic() +
+  ggtitle("Sars_cov2")
+
+sars_cov2_volcano_plot
+
+rsv_volcano_plot <- 
+  rsv_deg_tibble %>% 
+  dplyr::mutate(filter_genes = .$rowname) %>% 
+  dplyr::mutate(filter_genes = ifelse(.$filter_genes %in% rsv_result_filtered$rowname, "sig", "not_sig")) %>% ## changing filter genes to sig and not_sig 
+  #dplyr::filter(filter_genes == "sig")
+  ## dplyr::arrange(padj) sanity check - fine
+  ggplot(aes(x = log2FoldChange, y = -log10(padj))) +
+  #scale_colour_manual(values = c("black", "red")) +
+  geom_point(aes(colour = filter_genes), size =1, alpha = 0.3)+
+  geom_vline(xintercept = 1, linetype = 3) +
+  geom_vline(xintercept = -1, linetype = 3) +
+  geom_hline(yintercept = -log10(0.05), linetype =3) +
+  xlim(-5,5)+
+  ylim(0,20)+
+  theme(legend.position ="none") +
+  theme_classic() +
+  ggtitle("RSV")
+
+rsv_volcano_plot  
+  
+
+```
+
+Now from DEGs to gene annotation
+```{r list of ensamble version avialble}
+listMarts()
+```
+
+
+```{r Loading emsemble}
+ensembl_100 <- 
+  useEnsembl("ensembl") ## using default version 100 otherwise need to specify needed version
+
+ensembl_100_human <- 
+  useDataset("hsapiens_gene_ensembl", mart = ensembl_100) ## loading human ensamble
+
+ensembl_100_human
+
+```
+
+```{r show list of database avaialble for all species}
+head(listDatasets(ensembl_100))
+```
+
+```{r}
+head(listAttributes(ensembl_100_human)) ## list all attributes avaialble for ensembl_100_human
+head(listFilters(ensembl_100_human)) ## list all filters avaialble for ensembl_100_human
+```
+
+```{r gene annotation}
+
+annotation_sars_cov2_result <- 
+  getBM(attributes = c("ensembl_gene_id", "chromosome_name", 
+                       "start_position", "end_position",
+                       "strand", "gene_biotype", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = sars_cov2_deg_tibble$rowname, ## used in valcano plot- including all genes
+        mart = ensembl_100_human)
+
+head(annotation_sars_cov2_result)
+
+
+annotation_rsv_result <- 
+  getBM(attributes = c("ensembl_gene_id", "chromosome_name", 
+                       "start_position", "end_position",
+                       "strand", "gene_biotype", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = rsv_deg_tibble$rowname, ## used in valcano plot- including all genes
+        mart = ensembl_100_human)
+
+head(annotation_rsv_result)
+
+```
+
+```{r sanity check after annotation}
+
+length(sars_cov2_deg_tibble$rowname) == nrow(annotation_sars_cov2_result) ## true so its fine
+
+length(rsv_deg_tibble$rowname) == nrow(annotation_rsv_result) ## true so its fine
+
+```
+
+Joining degs tables with annotation table
+```{r}
+sars_cov2_annotation_result <- ## joinging annotation and result tables
+  inner_join(sars_cov2_deg_tibble, tibble(annotation_sars_cov2_result), 
+             by = c("rowname"= "ensembl_gene_id"))
+
+head(sars_cov2_annotation_result)
+
+
+rsv_annotation_result <- ## joinging annotation and result tables
+  inner_join(rsv_deg_tibble, tibble(annotation_rsv_result), 
+             by = c("rowname"= "ensembl_gene_id"))
+
+head(rsv_annotation_result)
+
+```
+
+Annotation files with only significant genes
+```{r}
+sars_cov2_result_deg <- 
+  sars_cov2_annotation_result %>% 
+  dplyr::filter(rowname %in% sars_cov2_result_filtered$rowname) #%>%  ## filtering deg genes based on cutoff - 1 fold difference and padj 0,05
+
+head(sars_cov2_result_deg)
+
+rsv_result_deg <- 
+  rsv_annotation_result %>% 
+  dplyr::filter(rowname %in% rsv_result_filtered$rowname) #%>%  ## filtering deg genes based on cutoff - 1 fold difference and padj 0,05
+
+head(rsv_result_deg)
+```
+
+Saving files
+```{r}
+write_csv(sars_cov2_result_deg, "~/rnaseq/a549_cells/sars_cov2_result_deg.csv")
+
+write_csv(rsv_result_deg, "~/rnaseq/a549_cells/rsv_result_deg.csv")
+
+```
+
+Overlap DEGS between sars_cov2 and rsv
+```{r Venn diagram overlap between sars_cov2 and rsv}
+
+sars_cov2_rsv_venn_list <- 
+  list(sara_cov2_deg = sars_cov2_result_deg$external_gene_name, 
+     rsv_deg = rsv_result_deg$external_gene_name)
+
+ggVennDiagram(sars_cov2_rsv_venn_list)
+
+```
+
+Heatmap with all significant DEGs
+```{r extract vst matrix}
+
+matrix_vst_sars_cov2_heatmap_table <- 
+  assay(sars_cov2_vst) %>% 
+  {.[sars_cov2_result_filtered$rowname,]} ## extracting only significant DEGs
+
+head(matrix_vst_sars_cov2_heatmap_table)
+
+matrix_vst_rsv_heatmap_table <- 
+  assay(rsv_vst) %>% 
+  {.[rsv_result_filtered$rowname,]} ## extracting only significant DEGs
+
+head(matrix_vst_rsv_heatmap_table)
+```
+
+Replacing ensemble_id with external gene name for heatmap only for DEGs
+```{r}
+matrix_vst_sars_cov2_heatmap_gene_name_table <- ## replacing row names to genes for pheatmap
+  matrix_vst_sars_cov2_heatmap_table %>% 
+  as.data.frame() %>% 
+  rownames_to_column("ensg_name") %>% 
+  as_tibble(.) %>% 
+  inner_join(., sars_cov2_result_deg[, c("rowname", "external_gene_name")],
+             by = c("ensg_name"= "rowname")) %>% 
+  dplyr::select(external_gene_name, 2:7) %>% 
+  column_to_rownames("external_gene_name") %>% 
+  as.matrix()
+
+head(matrix_vst_sars_cov2_heatmap_gene_name_table)
+
+matrix_vst_rsv_heatmap_gene_name_table <- ## replacing row names to genes for pheatmap
+  matrix_vst_rsv_heatmap_table %>% 
+  as.data.frame() %>% 
+  rownames_to_column("ensg_name") %>% 
+  as_tibble(.) %>% 
+  inner_join(., rsv_result_deg[, c("rowname", "external_gene_name")],
+             by = c("ensg_name"= "rowname")) %>% 
+  dplyr::select(external_gene_name, 2:7) %>% 
+  column_to_rownames("external_gene_name") %>% 
+  as.matrix()
+
+head(matrix_vst_rsv_heatmap_gene_name_table)
+
+```
+
+Creating dataframes for annotation bar
+
+```{r}
+
+sars_cov2_annotation <- 
+  data.frame(conditions = metadata_a549_cell_sars_cov2$conditions)
+
+row.names(sars_cov2_annotation) <- colnames(matrix_vst_sars_cov2_heatmap_gene_name_table)
+
+
+rsv_annotation <- 
+  data.frame(conditions = metadata_a549_cell_rsv$conditions)
+
+row.names(rsv_annotation) <- colnames(matrix_vst_rsv_heatmap_gene_name_table)
+
+
+```
+
+pheatmap for all significant DEGs
+```{r}
+pheatmap(matrix_vst_sars_cov2_heatmap_gene_name_table,
+         fontsize_row = 4, scale = "row",
+         color = colorRampPalette(brewer.pal(n = 7, name = "Blues"))(100),
+         cutree_cols = 2, cutree_rows = 2,
+         annotation_col = sars_cov2_annotation,
+         show_rownames = F,
+         legend = T)
+
+
+pheatmap(matrix_vst_rsv_heatmap_gene_name_table,
+         fontsize_row = 4, scale = "row",
+         color = colorRampPalette(brewer.pal(n = 7, name = "Blues"))(100),
+         cutree_cols = 2, cutree_rows = 2,
+         annotation_col = rsv_annotation,
+         show_rownames = F,
+         legend = T)
+
+```
+Number of genes up and down regulated in RSV vs sars_cov2
+```{r}
+sars_cov2_up_down_regulated <- 
+  sars_cov2_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  group_by(fold_change) %>% 
+  tally()
+
+sars_cov2_up_down_regulated
+
+rsv_up_down_regulated <- 
+  rsv_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  group_by(fold_change) %>% 
+  tally()
+
+rsv_up_down_regulated
+```
+Lot of genes upregulated in sars_cov2 compared to RSV infection 
+
+Top 10 up and down regulated genes in sars_cov2 infection
+```{r}
+sars_cov2_up_regulated_regulated <- 
+  sars_cov2_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange, pvalue, external_gene_name) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  arrange(desc(log2FoldChange)) %>% 
+  slice(1:10) %>% 
+  dplyr::select(external_gene_name, log2FoldChange, pvalue)
+
+sars_cov2_up_regulated_regulated
+
+sars_cov2_down_regulated_regulated <- 
+  sars_cov2_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange, pvalue, external_gene_name) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  arrange(log2FoldChange) %>% 
+  slice(1:10) %>% 
+  dplyr::select(external_gene_name, log2FoldChange, pvalue)
+
+sars_cov2_down_regulated_regulated
+
+```
+
+Top 10 up and down regulated genes in RSV infection
+
+```{r}
+rsv_up_regulated_regulated <- 
+  rsv_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange, pvalue, external_gene_name) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  arrange(desc(log2FoldChange)) %>% 
+  slice(1:10) %>% 
+  dplyr::select(external_gene_name, log2FoldChange, pvalue) 
+  
+rsv_up_regulated_regulated
+  
+
+rsv_down_regulated_regulated <- 
+  rsv_result_deg %>% 
+  dplyr::select(rowname, log2FoldChange, pvalue, external_gene_name) %>% 
+  dplyr::mutate(fold_change = ifelse(.$log2FoldChange > 1, "Up_regulated", "Down_regulated")) %>% 
+  arrange(log2FoldChange) %>% 
+  slice(1:10) %>% 
+  dplyr::select(external_gene_name, log2FoldChange, pvalue)
+  
+  rsv_down_regulated_regulated
+```
+
+## Cluster profiling 
+For go enrichment and kegg enrichment we need entrez id not ensemble id 
+
+sars_cov2 entrez id
+```{r}
+entrez_annotation_sars_cov2_result <- 
+  getBM(attributes = c("entrezgene_id", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = sars_cov2_result_deg$rowname, ## only differtial expressed genes- significant
+        mart = ensembl_100_human)
+
+head(entrez_annotation_sars_cov2_result)
+
+vector_entrez_annotation_sars_cov2_result <-  ## go enrrichment takes vector
+  entrez_annotation_sars_cov2_result$entrezgene_id
+
+head(vector_entrez_annotation_sars_cov2_result)
+```
+
+RSV entrez id
+```{r}
+entrez_annotation_rsv_result <- 
+  getBM(attributes = c("entrezgene_id", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = rsv_result_deg$rowname, ## only differtial expressed genes- significant
+        mart = ensembl_100_human)
+
+head(entrez_annotation_rsv_result)
+
+vector_entrez_annotation_rsv_result <-  ## go enrrichment takes vector
+  entrez_annotation_rsv_result$entrezgene_id
+
+head(vector_entrez_annotation_rsv_result)
+```
+
+sars_cov2 universe id
+```{r }
+universe_entrez_annotation_sars_cov2_result <-  ## for universe argument for go or kegg enrichment
+  getBM(attributes = c("entrezgene_id", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = sars_cov2_annotation_result$rowname, ## here we are using all gens (similarly used in valcano plot) ## basic concept is for fisher exact test you need pool and here pool is all genes
+        mart = ensembl_100_human)
+
+head(universe_entrez_annotation_sars_cov2_result)
+
+universe_vector_entrez_annotation_sars_cov2_result <-  ## go enrrichment takes vector
+  as.character(universe_entrez_annotation_sars_cov2_result$entrezgene_id) ## should be a character
+
+class(universe_vector_entrez_annotation_sars_cov2_result) 
+```
+
+RSV universe id
+```{r}
+universe_entrez_annotation_rsv_result <-  ## for universe argument for go or kegg enrichment
+  getBM(attributes = c("entrezgene_id", "external_gene_name", "description"),
+        filters = c("ensembl_gene_id"),
+        values = rsv_annotation_result$rowname, ## here we are using all gens (similarly used in valcano plot) ## basic concept is for fisher exact test you need pool and here pool is all genes
+        mart = ensembl_100_human)
+
+head(universe_entrez_annotation_rsv_result)
+
+universe_vector_entrez_annotation_rsv_result <-  ## go enrrichment takes vector
+  as.character(universe_entrez_annotation_rsv_result$entrezgene_id) ## should be a character
+
+class(universe_vector_entrez_annotation_rsv_result)
+
+```
+
+sars_cov2 kegg enrichment
+```{r kegg enrich}
+
+sars_cov2_kegg_enrich <- 
+  enrichKEGG (gene =vector_entrez_annotation_sars_cov2_result, ## entriz id for genes
+              organism = "hsa", ## humam species
+   universe = universe_vector_entrez_annotation_sars_cov2_result) ## all genes entriez gene
+
+```
+
+
+RSV kegg enrichment
+```{r}
+rsv_kegg_enrich <- 
+  enrichKEGG (gene =vector_entrez_annotation_rsv_result, ## entriz id for genes
+              organism = "hsa", ## humam species
+   universe = universe_vector_entrez_annotation_rsv_result) ## all genes entriez gene
+
+```
+
+Top 15 kegg enrichment - sars_cov2 bar plot
+```{r }
+top_15_kegg_enrichment_sars_cov2 <- 
+  sars_cov2_kegg_enrich@result %>% 
+  dplyr::select(Description, GeneRatio, qvalue) %>% 
+  filter(qvalue < 0.01) %>% 
+  as_tibble() %>% 
+  mutate(no_of_genes = str_split(.$GeneRatio, "/", simplify = T)[,1]) %>% 
+  dplyr::select(Description, no_of_genes, qvalue) %>% 
+  dplyr::mutate(no_of_genes = as.numeric(no_of_genes)) %>% 
+  ggplot(aes(x = reorder(Description, -no_of_genes), y = no_of_genes))+
+  geom_bar(stat = "identity", aes(fill = qvalue ))+
+  scale_fill_viridis_b(option = "magma")+
+  coord_flip()+
+  theme_classic() +
+  xlab("Number of genes") +
+  ylab("Kegg Enrichment")
+
+top_15_kegg_enrichment_sars_cov2
+```
+
+Top 15 kegg enrichment - rsv bar plot
+```{r}
+top_15_kegg_enrichment_rsv <- 
+  rsv_kegg_enrich@result %>% 
+  dplyr::select(Description, GeneRatio, qvalue) %>% 
+  filter(qvalue < 0.01) %>% 
+  as_tibble() %>% 
+  slice(1:15) %>% 
+  mutate(no_of_genes = str_split(.$GeneRatio, "/", simplify = T)[,1]) %>% 
+  dplyr::select(Description, no_of_genes, qvalue) %>% 
+  dplyr::mutate(no_of_genes = as.numeric(no_of_genes)) %>% 
+  ggplot(aes(x = reorder(Description, -no_of_genes), y = no_of_genes))+
+  geom_bar(stat = "identity", aes(fill = qvalue ))+
+  scale_fill_viridis_b(option = "magma")+
+  coord_flip()+
+  theme_classic() +
+  xlab("Number of genes") +
+  ylab("Kegg Enrichment")
+
+top_15_kegg_enrichment_rsv
+```
+RSV bar and dot plot
+
+
+Sars_cov2 cnet plot
+```{r cnet plot keggenrich}
+sars_cov2_fold_changes <- 
+  sars_cov2_result_deg$log2FoldChange ## argument to be used in cnet
+
+names(sars_cov2_fold_changes) <- 
+  sars_cov2_result_deg$external_gene_name  ## assign names to them
+
+cnetplot(sars_cov2_kegg_enrich, showCategory = 15,
+         foldChange = sars_cov2_fold_changes)
+```
+
+RSV cnet plot
+```{r}
+rsv_fold_changes <- 
+  rsv_result_deg$log2FoldChange ## argument to be used in cnet
+
+names(rsv_fold_changes) <- 
+  rsv_result_deg$external_gene_name  ## assign names to them
+
+cnetplot(rsv_kegg_enrich, showCategory = 15,
+         foldChange = rsv_fold_changes)
+
+```
+
+```{r}
+sessionInfo()
+```
+
+
+
